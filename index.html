@@ -1,0 +1,285 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+
+	<title>sweeper v2.0</title>
+	<meta name="description" content="javascript based mine sweeper clone">
+	<meta name="author" content="gary 'frog' wood">
+
+	<meta name="viewport" content="width=device-width,initial-scale=1">
+
+	<link rel="stylesheet" href="css/sweeper.css">
+</head>
+
+<body>
+	<div id="container">
+
+		<canvas id="sweeper" width="400" height="400">
+		This demo is not supported by your browser.  Sorry!
+		</canvas>
+
+		<input id="launchButton" type="button" onclick="Game.init(350,350,8,8);" value="go!" />
+
+	</div>
+
+    <script>
+	var Game = {
+		canvas: document.getElementById("sweeper"),
+		ctx: null,
+		state: "paused",
+		board: {
+			width: null,
+			height: null,
+			cols: null,
+			rows: null,
+			cells: [],
+			firstClick: true,
+			clickListener: function(e) {
+				var mx, my,
+					G = Game, board = G.board;
+				if (e.pageX || e.pageY) { mx = e.pageX; my = e.pageY; }
+				else {
+					mx = e.clientX + document.body.scrollLeft + document.documentElement.scrollLeft;
+					my = e.clientY + document.body.scrollTop + document.documentElement.scrollTop;
+				}
+				mx -= G.canvas.offsetLeft;
+				my -= G.canvas.offsetTop;
+				
+				var c;
+				for (var i = 0; i < board.cells.length; i++) {
+					var _c = board.cells[i];
+					if (mx >= _c.x && mx <= _c.x + _c.width && my >= _c.y && my <= _c.y + _c.height) {
+						c = _c;
+						if (board.firstClick) {
+							board.firstClick = false;
+							board.generateBombs(_c.id);
+						}
+						break;
+					}
+				}
+				board.handleClick(c);     		
+			},
+			flagCell: function(e) {
+				var mx, my,
+					G = Game, board = G.board, ctx = G.ctx;
+				if (e.pageX || e.pageY) { mx = e.pageX; my = e.pageY; }
+				else {
+					mx = e.clientX + document.body.scrollLeft + document.documentElement.scrollLeft;
+					my = e.clientY + document.body.scrollTop + document.documentElement.scrollTop;
+				}
+				mx -= G.canvas.offsetLeft;
+				my -= G.canvas.offsetTop;
+				
+				var c;
+				for (var i = 0; i < board.cells.length; i++) {
+					var _c = board.cells[i];
+					if (mx >= _c.x && mx <= _c.x + _c.width && my >= _c.y && my <= _c.y + _c.height) {
+						c = _c;
+					}
+				}
+
+				if (c.type !== 1) {
+					c.flagged = (c.flagged) ? false : true;
+					ctx.clearRect(c.x, c.y, c.width, c.height);
+					if (c.flagged) { ctx.fillStyle = "orange"; }
+					else { ctx.fillStyle = (c.type === 0) ? "rgb(200,200,200)" : "rgb(0,100,255)"; }
+
+					ctx.fillRect(c.x, c.y, c.width, c.height);
+					ctx.strokeRect(c.x, c.y, c.width, c.height);
+				}
+				e.preventDefault();
+			},
+			draw: function(ctx) {
+				var G = Game,
+					board = G.board,
+					boardLength = board.cells.length;
+
+				for (var i = 0; i < boardLength; i++) {
+					var c = board.cells[i];
+					ctx.fillStyle = "rgb(200,200,200)";
+					ctx.fillRect(c.x, c.y, c.width, c.height);
+					ctx.strokeRect(c.x, c.y, c.width, c.height);
+				}
+
+
+				G.canvas.addEventListener("click", board.clickListener);
+				G.canvas.addEventListener("contextmenu", board.flagCell);
+			},
+			reset: function() {
+				var G = Game;
+					G.ctx.clearRect(0, 0, G.canvas.width, G.canvas.height);
+					G.board.cells.length = 0;
+					G.board.firstClick = true;
+			},
+			handleClick: function(c) {	
+				var ctx = Game.ctx;
+						
+				if (c.isBomb) { Game.over(c); return; }
+				else c.type = 1;
+
+				switch (c.type) {
+					case 1: ctx.fillStyle = "rgb(0,100,255)"; break;
+					case 2: ctx.fillStyle = "rgb(255,175,0)"; break;
+				}
+
+				ctx.clearRect(c.x, c.y, c.width, c.height);
+				ctx.fillRect(c.x, c.y, c.width, c.height);
+				ctx.strokeRect(c.x, c.y, c.width, c.height);
+
+				var bombs = c.countBombs();
+				if (c.type === 1) {
+					if (bombs > 0) {
+						ctx.fillStyle = "rgb(0,0,0)";
+						ctx.font = "bold 30px arial";
+						ctx.fillText (bombs, c.x + 13, c.y + 32);
+					} else c.bloom();
+				}
+			},			
+			generateBombs: function(clicked) {
+				var board = Game.board, 
+					numBombs = 10; //Math.floor(((board.cols * board.rows) / 3) / 2);
+				for (var i = 0; i < numBombs; i++) {
+					var b = Math.floor(Math.random() * board.cells.length);
+					if (board.cells[b].isBomb || board.cells[b].id === clicked) i--;
+					else board.cells[b].isBomb = true;
+				}
+			}
+		},
+		cell: function(w, h, x, y, id) {
+			this.id = id;
+			this.width = w;
+			this.height = h;
+			this.x = x;
+			this.y = y;
+			this.text = this.id.toString()
+			/* types
+				0 = default
+				1 = cleared
+				2 = flagged
+			*/
+			this.type = 0;
+			this.isBomb = false;
+			this.neighbours = new Array();
+			this.flagged = false;
+			this.getNeighbours = function() {
+				var rangeW = this.width * 3,
+					rangeH = this.height * 3,
+					rangeX = (this.x - this.width) - 1,
+					rangeY = (this.y - this.height) - 1;
+				for (var i = 0; i < Game.board.cells.length; i++) {
+					var c = Game.board.cells[i];
+					if (c.x >= rangeX && c.x <= rangeX + rangeW && c.y >= rangeY && c.y <= rangeY + rangeH && c.id !== this.id) this.neighbours.push(c);
+				}
+			};
+			this.countBombs = function() {
+				var bombs = 0;
+				for (var i = 0; i < this.neighbours.length; i++) {
+					var c = this.neighbours[i];
+					if (c.isBomb) bombs++;
+				}
+				return bombs;
+			};
+			this.bloom = function() {
+				for (var i = 0; i < this.neighbours.length; i++) {
+					var c = this.neighbours[i];
+					if (!c.isBomb && c.type === 0) {
+						Game.board.handleClick(c);
+					}
+				}
+			}
+		},
+		init: function(w, h, c, r) {
+			var G = this;
+			if (G.canvas.getContext) {
+				G.canvas.width = w;
+				G.canvas.height = h;
+
+				G.ctx = G.canvas.getContext("2d");
+				G.ctx.fillStyle = "rgb(200,200,200)";
+				G.ctx.strokeStyle = "rgb(0,0,0)";
+				G.ctx.lineWidth = 1;
+
+				var board = G.board;
+					board.width = w;
+					board.height = h;
+					board.cols = c;
+					board.rows = r;
+					board.reset();			
+				var cWidth = Math.floor(board.width / board.cols),
+					cHeight = Math.floor(board.height / board.rows),
+					button = document.getElementById("launchButton").value = "Go!";
+				
+				if (board.width%board.cols !== 0) {
+					G.canvas.width = cWidth * board.cols;
+					G.canvas.height = cHeight * board.rows;
+					board.width = G.canvas.width;
+					board.height = G.canvas.height;
+				}
+
+				var count = 0;
+				for (var r = 0; r < board.cols; r++) {
+					for (var c = 0; c < board.rows; c++) {
+						var tmp = new G.cell(cWidth, cHeight, c * cWidth, r * cHeight, count);
+						board.cells.push(tmp);
+						count++;
+					}
+				}
+
+				board.draw(G.ctx);
+				for (var i = 0; i < board.cells.length; i++) {
+					var c = board.cells[i];
+						c.getNeighbours();
+				}
+			}
+		},
+		over: function(c) {
+			var board = Game.board,
+				ctx = Game.ctx,
+				button = document.getElementById("launchButton");
+
+			var d2 = Math.floor(c.width / 2),
+				currentR = 2, endR = 120, rate = 8;
+			
+			function animate() {
+				if (currentR <= endR) { 
+					currentR += rate;
+					draw();
+				} else { 
+					ctx.fillStyle = "rgb(255,255,255)";
+					ctx.strokeStyle = "rgb(0,0,0)";
+					ctx.font = "bold 40px arial";
+					ctx.textAlign = "center"
+					ctx.fillText ("Game Over", board.width / 2, board.height / 2);
+					ctx.strokeText ("Game Over", board.width / 2, board.height / 2);
+				}
+			}
+			function draw() {
+				var bW = board.width, bH = board.height,
+					grad = ctx.createRadialGradient(c.x + d2, c.y + d2, 5, c.x + d2, c.y + d2, currentR);
+					grad.addColorStop(0, "red");
+					grad.addColorStop(0.75, "orange");
+					grad.addColorStop(0.90, "yellow");
+					grad.addColorStop(1, "rgba(255,255,255,0.4)");
+				ctx.fillStyle = grad;
+				ctx.beginPath();
+				ctx.arc(c.x + d2, c.y + d2, currentR, 0, Math.PI*2, true);
+				ctx.fill();
+				setTimeout(animate, 10);
+			}
+
+			animate();
+
+			Game.canvas.removeEventListener("click", Game.board.clickListener);
+			Game.canvas.removeEventListener("contextmenu", Game.board.flagCell);
+			button.value = "Reset the Board";
+		}
+	};
+	</script>
+<!--[if lt IE 7 ]>
+	<script src="//ajax.googleapis.com/ajax/libs/chrome-frame/1.0.2/CFInstall.min.js"></script>
+	<script>window.attachEvent("onload",function(){CFInstall.check({mode:"overlay"})})</script>
+<![endif]-->	
+</body>
+</html>
